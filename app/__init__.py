@@ -1,12 +1,11 @@
-from flask import Flask
 from flask_api import FlaskAPI
 from flask_sqlalchemy import SQLAlchemy
 
-from instance.config import app_config
 # local imports
+from instance.config import app_config
+
+# init database
 db = SQLAlchemy()
-app = Flask(__name__)
-# from app import routes
 
 def create_app(config_name):
     from .models import Location, TimeSeries
@@ -17,3 +16,9 @@ def create_app(config_name):
     db.init_app(app)
 
     return app
+
+
+
+
+# app = Flask(__name__)
+# from app import routes
