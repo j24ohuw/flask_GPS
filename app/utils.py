@@ -28,3 +28,9 @@ class SmartNested(fields.Nested):
             return {'id': int(getattr(obj, attr + '_id'))}
         return super(SmartNested, self).serialize(attr, obj, accessor)
 
+
+import dateutil.parser
+import datetime
+def getDateTimeFromISO8601String(s):
+    d = dateutil.parser.parse(s)
+    return d

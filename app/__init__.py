@@ -29,29 +29,37 @@ def create_app(config_name):
     def add_product():
         message = ''
         post_input = request.data
+        # verify if passed time input is of ISO format
+        try:
+            time = Location.validate_time(request.data['datetime'])
+        except ValidationError as err:
+            return jsonify({'error': str(err)}), 400
         # empty data, return error code 400
         if not post_input:
-            return jsonify({'message': 'No input provided','error':400}), 400
+            return jsonify({'error': 'No input provided'}), 400
 
         # validate data; deserialize
         try:
             data = product_schema.load(data=post_input, session=db.session)
         # raise validation error if deserialization fails
         except ValidationError as err:
-            return jsonify(err.messages), 422
+            return jsonify(str(err)), 422
 
         # Always create a new product
         description = request.data['description']
         product = Product(description=description)
         product.save()
         # append a new location datum to product
-        location = Location(datetime=request.data['datetime'],
+        location = Location(datetime=time,
                                 longitude=request.data['longitude'],
                                 latitude=request.data['latitude'],
                                 elevation=request.data['elevation'],
                                 product_id=product.id,
         )
-        location.save()
+        try:
+            location.save()
+        except ValidationError as err:
+            return jsonify({'error': str(err)}), 422
 
         result = location_schema.dump(Location.query.get(location.id))
         return jsonify({
@@ -69,7 +77,9 @@ def create_app(config_name):
 
     @app.route('/products/<int:pk>', methods=['GET', 'PUT'])
     def location_detail(pk):
+
         product = Product.query.filter_by(id=pk).first()
+        # check empty data
         if not product:
             return make_response(jsonify({'message': 'No entry was found for the given id',
                                           'error':'404'})), 404
@@ -81,10 +91,17 @@ def create_app(config_name):
         # process PUT request
         else:
             product.description = request.data['description']
-            product.save()
-            return make_response(jsonify({'message':'product editing was successful',
-                                          'result': product_schema.dump(product)
-                                          }))
+            try:
+                product.save()
+                return make_response(
+                    jsonify({'message': 'product editing was successful',
+                             'result': product_schema.dump(product)}), 200
+                )
+            except ValidationError as e:
+                return make_response(
+                    jsonify({'error': e}), 422
+                )
+
 
 
 
@@ -96,36 +113,58 @@ def create_app(config_name):
                                           'error':'404'})), 404
         else:
             try:
-                db.session.delete(product)
-                db.session.commit()
+                # db.session.delete(product)
+                # db.session.commit()
+                product.delete()
                 return make_response(jsonify({'message':'location entry was successfully deleted'})), 201
-            except:
-                return make_response(jsonify({'message': 'location entry deletion was unsuccessful',
-                                              'error':'400'})), 400
+            except Exception as e:
+                return make_response(jsonify({'error':e})), 400
 
+    # adds location data to a product; time, longitude, latitude, and elevation must be given
+    # product ID must be given as URL
     @app.route('/products/<int:product_pk>', methods=['POST'])
     def location_post(product_pk):
         product = Product.query.filter_by(id=product_pk).first()
         if not product:
-            return make_response(jsonify({'message': 'No entry was found for the given id',
-                                          'error': '404'})), 404
+            return make_response(jsonify({'error': 'No entry was found for the given id'})), 404
         # product exists
         else:
+            try:
+                time = Location.validate_time(request.data['datetime'])
+            except ValidationError as err:
+                make_response(jsonify({'error': err})), 422
 
-            location = Location(datetime=request.data['datetime'],
-                                longitude=request.data['longitude'],
-                                latitude=request.data['latitude'],
-                                elevation=request.data['elevation'],
-                                product_id=product_pk,
-                                )
-            location.save()
-            result = location_schema.dump(location)
-            return make_response(
-                jsonify({
-                    'message': 'new location added to a product',
-                    'result': result,
-                })
-            )
+            # check for duplicate
+            longitude = request.data['longitude']
+            latitude = request.data['latitude']
+            elevation = request.data['elevation']
+
+            locations = Location.query.filter_by(product_id=product_pk)\
+                .filter_by(longitude=longitude, latitude=latitude, elevation=elevation).all()
+            print(locations)
+            # duplicates -> return error
+            if locations:
+                return make_response(jsonify({'error': 'Duplicate entry exists'})), 404
+
+            try:
+                location = Location(datetime=time,
+                                    longitude=longitude,
+                                    latitude=latitude,
+                                    elevation=elevation,
+                                    product_id=product_pk
+                                    )
+
+                location.save()
+                result = location_schema.dump(location)
+                return make_response(
+                    jsonify({
+                        'message': 'new location added to a product',
+                        'result': result,
+                    })
+                )
+            except ValidationError as e:
+                return make_response(jsonify({'error':e})), 422
+
 
     @app.route('/locations/<int:location_pk>', methods=['PUT', 'DELETE'])
     def location_edit(location_pk):
@@ -142,8 +181,9 @@ def create_app(config_name):
             location.longitude = request.data.get('longitude','')
             location.latitude = request.data.get('latitude','')
             location.datetime = request.data.get('datetime','')
-            location.save()
+
             try:
+                location.save()
                 result = location_schema.dump(location)
                 return make_response(
                     jsonify({'message': 'location edited',

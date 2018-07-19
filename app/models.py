@@ -2,8 +2,8 @@
 from app import db
 from marshmallow import Schema, fields, ValidationError, pre_load
 from marshmallow_sqlalchemy import ModelSchema
-from marshmallow import fields, pre_dump, post_dump
-from .utils import SmartNested
+from marshmallow import fields, pre_dump, post_dump, ValidationError
+from .utils import SmartNested, getDateTimeFromISO8601String
 
 
 # data example:
@@ -27,6 +27,10 @@ class Product(db.Model):
         db.session.add(self)
         db.session.commit()
 
+    def delete(self):
+        db.session.delete(self)
+        db.session.commit()
+
 class Location(db.Model):
     # __tablename__ = 'Location'
     id = db.Column(db.Integer, primary_key=True, nullable=False)
@@ -48,8 +52,32 @@ class Location(db.Model):
         This applies for both creating a new one
         and updating an existing onupdate
         """
-        db.session.add(self)
-        db.session.commit()
+        try:
+            self.validate()
+            db.session.add(self)
+            db.session.commit()
+        except ValidationError as e:
+            raise ValidationError(e)
+
+    def validate(self):
+        # validate longitude and latitude
+        if float(self.longitude) < -180 or float(self.longitude) > 180:
+            print(self.longitude)
+            raise ValidationError('Invalid longitude')
+        if float(self.latitude) < -180 or float(self.latitude) > 180:
+            raise ValidationError('Invalid latitude')
+        # min = marianas trench, max = ozone layer
+        if float(self.elevation) < -10994 or float(self.elevation) > 20000:
+            raise ValidationError('Invalid elevation')
+        # validate elevation
+
+    @staticmethod
+    def validate_time(time):
+        try:
+            return getDateTimeFromISO8601String(time)
+        except Exception as e:
+            # ignore error message and raise validation error
+            raise ValidationError('wrong input time')
 
     def delete(self):
         db.session.delete(self)
