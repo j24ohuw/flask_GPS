@@ -5,6 +5,7 @@ from marshmallow_sqlalchemy import ModelSchema
 from marshmallow import fields, pre_dump, post_dump
 from .utils import SmartNested
 
+
 # data example:
 # id	description	datetime	longitude	latitude	elevation
 class Product(db.Model):
@@ -12,15 +13,15 @@ class Product(db.Model):
     # __tablename__ = 'Product'
 
     id = db.Column(db.Integer, primary_key=True)
-    description = db.Column(db.String(255), nullable=False, unique=True)
+    description = db.Column(db.String(255), nullable=False)
     locations = db.relationship('Location', backref='product',
-                            order_by='Location.datetime',
-                            cascade="all, delete-orphan",
-                            lazy='dynamic'
-    )
+                                order_by='Location.datetime',
+                                cascade="all, delete-orphan",
+                                lazy='dynamic'
+                                )
 
-    def __init__(self, description):
-        self.description = description
+    # def __init__(self, description):
+    #     self.description = description
 
     def save(self):
         db.session.add(self)
@@ -29,18 +30,18 @@ class Product(db.Model):
 class Location(db.Model):
     # __tablename__ = 'Location'
     id = db.Column(db.Integer, primary_key=True, nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey(Product.id), nullable=False) #foreignkey input takes tablename
+    product_id = db.Column(db.Integer, db.ForeignKey(Product.id), nullable=False)  # foreignkey input takes tablename
     datetime = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=False)
     longitude = db.Column(db.Float, nullable=False)
     latitude = db.Column(db.Float, nullable=False)
     elevation = db.Column(db.Float, nullable=False)
 
-    def __init__(self, product_id, datetime, longitude, latitude, elevation):
-        self.product_id = product_id
-        self.datetime = datetime
-        self.longitude = longitude
-        self.latitude = latitude
-        self.elevation = elevation
+    # def __init__(self, datetime, longitude, latitude, elevation):
+    #     # self.product_id = product_id
+    #     self.datetime = datetime
+    #     self.longitude = longitude
+    #     self.latitude = latitude
+    #     self.elevation = elevation
 
     def save(self):
         """Save timeseries data.
@@ -53,6 +54,9 @@ class Location(db.Model):
     def delete(self):
         db.session.delete(self)
         db.session.commit()
+
+    # def validate(self):
+    #     if
 
     @staticmethod
     def get_all(location_id):
@@ -70,47 +74,63 @@ class ProductSchema(ModelSchema):
     id = fields.Int(dump_only=True)
 
     @post_dump(pass_many=True)
-    def wrap(self, data, many):
+    def process_product(self, data, many):
+        """This method returns location details instead of just IDs"""
         if many:
             for product in data:
                 history = []
                 product_id = product['id']
-                historical_locations = Location.query.filter_by(product_id=product_id)#.all()
+                historical_locations = Location.query.filter_by(product_id=product_id)  # .all()
 
                 for location in historical_locations:
                     obj = {
                         'id': location.id,
                         'datetime': location.datetime,
-                        'longitude':location.longitude,
+                        'longitude': location.longitude,
                         'latitude': location.latitude,
                         'elevation': location.elevation,
                     }
                     history.append(obj)
                 product['locations'] = history
         else:
-            data = {'description':data['description'],
-                     'id': data['id'],
-             }
-        return data
+            # TODO: REFACTOR THE CODE INSIDE CONDITIONAL STATEMENTS
+            history = []
+            product_id = data['id']
+            print(data)
+            historical_locations = Location.query.filter_by(product_id=product_id)  # .all()
+
+            for location in historical_locations:
+                obj = {
+                    'id': location.id,
+                    'datetime': location.datetime,
+                    'longitude': location.longitude,
+                    'latitude': location.latitude,
+                    'elevation': location.elevation,
+                }
+                history.append(obj)
+            data['locations'] = history
+            return data
 
     class Meta:
         model = Product
 
 
-    # historical_data = fields.Method('format_timeseries', dump_only=True)
-    #
-    # def format_timeseries(self, location):
-    #     timeseries = location
-    #     return '{},{}, {}, {}'.format(timeseries.datetime,
-    #                                   timeseries.longitude,
-    #                                   timeseries.latitude,
-    #                                   timeseries.elevaton)
-    # history = fields.Nested(HistorySchema, many=True)
-    # class Meta:
-    #     model = Location
 class LocationSchema(ModelSchema):
     id = fields.Int(dump_only=True)
-    location = fields.Nested(ProductSchema)
+    location = fields.Nested(ProductSchema, dump_only=True)
+
+    @post_dump
+    def process_location(self, data):
+        """This method returns product object instead of product ID on schema dump"""
+        print(data)
+        # query with product ID
+        product = Product.query.filter_by(id=data['product']).first()
+        obj = {'product_id': product.id,
+               'description': product.description
+               }
+        data['product'] = obj
+        return data
+
     class Meta:
         model = Location
 

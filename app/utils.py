@@ -27,3 +27,4 @@ class SmartNested(fields.Nested):
         if attr not in obj.__dict__:
             return {'id': int(getattr(obj, attr + '_id'))}
         return super(SmartNested, self).serialize(attr, obj, accessor)
+

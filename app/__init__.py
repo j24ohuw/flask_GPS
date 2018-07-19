@@ -24,19 +24,15 @@ def create_app(config_name):
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     db.init_app(app)
 
-    @app.route('/')
-    @app.route('/index')
-    def index():
-        return "Hello, World!"
-
     # routing function for ListCreateAPIView
     @app.route('/products/', methods=['POST'])
-    def add_location():
+    def add_product():
         message = ''
         post_input = request.data
         # empty data, return error code 400
         if not post_input:
             return jsonify({'message': 'No input provided','error':400}), 400
+
         # validate data; deserialize
         try:
             data = product_schema.load(data=post_input, session=db.session)
@@ -44,19 +40,10 @@ def create_app(config_name):
         except ValidationError as err:
             return jsonify(err.messages), 422
 
-        # if the description does not exist, add a new description
-        product = Product.query.filter_by(description=post_input['description']).first()
-        if product is None:
-            message = 'New product registered'
-            # create a new location
-            description = request.data['description']
-            product = Product(description=description)
-            db.session.add(product)
-            db.session.commit()
-
-        # if post request is a duplicate
-        """Implementation for duplicate prevention goes here"""
-
+        # Always create a new product
+        description = request.data['description']
+        product = Product(description=description)
+        product.save()
         # append a new location datum to product
         location = Location(datetime=request.data['datetime'],
                                 longitude=request.data['longitude'],
@@ -64,8 +51,8 @@ def create_app(config_name):
                                 elevation=request.data['elevation'],
                                 product_id=product.id,
         )
-        db.session.add(location)
-        db.session.commit()
+        location.save()
+
         result = location_schema.dump(Location.query.get(location.id))
         return jsonify({
             'message': message,
@@ -80,21 +67,30 @@ def create_app(config_name):
             'result': result
         })
 
-    @app.route('/products/<int:pk>', methods=['GET'])
+    @app.route('/products/<int:pk>', methods=['GET', 'PUT'])
     def location_detail(pk):
-        product = Product.query.filter_by(id=pk).all()
-        # detail can only retrieve single object
-        assert len(Product) < 2
-        # serialize
-        result = products_schema.dump(product)
-        return jsonify({'result':result})
+        product = Product.query.filter_by(id=pk).first()
+        if not product:
+            return make_response(jsonify({'message': 'No entry was found for the given id',
+                                          'error':'404'})), 404
+
+        if request.method == 'GET':
+            # serialize
+            result = product_schema.dump(product)
+            return jsonify({'result':result})
+        # process PUT request
+        else:
+            product.description = request.data['description']
+            product.save()
+            return make_response(jsonify({'message':'product editing was successful',
+                                          'result': product_schema.dump(product)
+                                          }))
 
 
 
     @app.route('/products/<int:pk>', methods=['DELETE'])
     def location_detail_delete(pk):
         product = Product.query.filter_by(id=pk).first()
-        print(product)
         if not product:
             return make_response(jsonify({'message': 'No entry was found for the given id',
                                           'error':'404'})), 404
@@ -107,12 +103,93 @@ def create_app(config_name):
                 return make_response(jsonify({'message': 'location entry deletion was unsuccessful',
                                               'error':'400'})), 400
 
-    # @app.route('/locations/<>')
+    @app.route('/products/<int:product_pk>', methods=['POST'])
+    def location_post(product_pk):
+        product = Product.query.filter_by(id=product_pk).first()
+        if not product:
+            return make_response(jsonify({'message': 'No entry was found for the given id',
+                                          'error': '404'})), 404
+        # product exists
+        else:
+
+            location = Location(datetime=request.data['datetime'],
+                                longitude=request.data['longitude'],
+                                latitude=request.data['latitude'],
+                                elevation=request.data['elevation'],
+                                product_id=product_pk,
+                                )
+            location.save()
+            result = location_schema.dump(location)
+            return make_response(
+                jsonify({
+                    'message': 'new location added to a product',
+                    'result': result,
+                })
+            )
+
+    @app.route('/locations/<int:location_pk>', methods=['PUT', 'DELETE'])
+    def location_edit(location_pk):
+        # validate input data
+        # check the nested relationship and see if the passed values make sense
+        location = Location.query.filter_by(id=location_pk).first()
+        # if location is empty return error message
+        if not location:
+            return make_response(jsonify({'message': 'No entry was found for the given id',
+                                          'error': '404'})), 404
+
+        if request.method == 'PUT':
+            location.elevation = request.data.get('elevation','')
+            location.longitude = request.data.get('longitude','')
+            location.latitude = request.data.get('latitude','')
+            location.datetime = request.data.get('datetime','')
+            location.save()
+            try:
+                result = location_schema.dump(location)
+                return make_response(
+                    jsonify({'message': 'location edited',
+                             'result': result
+                             })), 200
+            except ValidationError as err:
+                return jsonify(err.messages), 422
+
+        if request.method == 'DELETE':
+            try:
+                location.delete()
+                return make_response(
+                    jsonify({
+                        'message': 'location deleted',
+                     })), 200
+            # if for some reason delete fails, we raise 400
+            except:
+                abort(400)
+
     return app
 
+# data = {'datetime': request.data['datetime'],
+#         'longitude': request.data['longitude'],
+#         'latitude': request.data['latitude'],
+#         'elevation': request.data['elevation']
+# }
+# try:
+#     location_validate = location_schema.load(data=data, session=db.session)
+# except ValidationError as err:
+#     return jsonify(err.messages), 422
 
-# app = Flask(__name__)
-# from app import routes
+# # if post request is a duplicate;
+# """Implementation for duplicate prevention goes here"""
+
+# # if the description does not exist, add a new description
+# product = Product.query.filter_by(description=post_input['description']).first()
+# if product is None:
+#     message = 'New product registered'
+#     # create a new location
+#     description = request.data['description']
+#     product = Product(description=description)
+#     db.session.add(product)
+#     db.session.commit()
+#
+# # if post request is a duplicate
+# """Implementation for duplicate prevention goes here"""
 
 
 # else:
@@ -123,3 +200,9 @@ def create_app(config_name):
 #                               product_id=product.id
 #     )
 #     message = 'Added a new datapoint to an existing location'
+
+
+
+
+# app = Flask(__name__)
+# from app import routes
