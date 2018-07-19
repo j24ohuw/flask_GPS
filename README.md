@@ -36,12 +36,12 @@
                         "longitude": 140
                     },
                     {
-                        "datetime": "Fri, 14 Oct 2016 13:00:00 GMT",
-                        "elevation": 500,
-                        "id": 67,
-                        "latitude": -130,
-                        "longitude": 140
-                    },
+                    
+
+    
+
+
+
     ```
     
 #### POST /products/ 
