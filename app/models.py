@@ -2,19 +2,19 @@
 from app import db
 from marshmallow import Schema, fields, ValidationError, pre_load
 from marshmallow_sqlalchemy import ModelSchema
-from marshmallow import fields
+from marshmallow import fields, pre_dump, post_dump
 from .utils import SmartNested
 
 # data example:
 # id	description	datetime	longitude	latitude	elevation
-class Location(db.Model):
-    """This class represents location model"""
-    # __tablename__ = 'locations'
+class Product(db.Model):
+    """This class represents product model"""
+    # __tablename__ = 'Product'
 
     id = db.Column(db.Integer, primary_key=True)
-    description = db.Column(db.String(255), nullable=False)
-    history = db.relationship('TimeSeries', backref='location',
-                            order_by='TimeSeries.datetime',
+    description = db.Column(db.String(255), nullable=False, unique=True)
+    locations = db.relationship('Location', backref='product',
+                            order_by='Location.datetime',
                             cascade="all, delete-orphan",
                             lazy='dynamic'
     )
@@ -26,18 +26,17 @@ class Location(db.Model):
         db.session.add(self)
         db.session.commit()
 
-class TimeSeries(db.Model):
-    # __tablename__ = 'timeseries'
-
+class Location(db.Model):
+    # __tablename__ = 'Location'
     id = db.Column(db.Integer, primary_key=True, nullable=False)
-    location_id = db.Column(db.Integer, db.ForeignKey(Location.id), nullable=False) #foreignkey input takes tablename
+    product_id = db.Column(db.Integer, db.ForeignKey(Product.id), nullable=False) #foreignkey input takes tablename
     datetime = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=False)
     longitude = db.Column(db.Float, nullable=False)
     latitude = db.Column(db.Float, nullable=False)
     elevation = db.Column(db.Float, nullable=False)
 
-    def __init__(self, location_id, datetime, longitude, latitude, elevation):
-        self.location_id = location_id
+    def __init__(self, product_id, datetime, longitude, latitude, elevation):
+        self.product_id = product_id
         self.datetime = datetime
         self.longitude = longitude
         self.latitude = latitude
@@ -62,30 +61,58 @@ class TimeSeries(db.Model):
         return Location.query.all()
 
     def __repr__(self):
-        """Return a representation of a timeseries instance."""
-        return "<Timeseries: {}>".format(self.id)
+        """Return a representation of a location instance."""
+        return "<Location: {}>".format(self.id)
 
 
-# class TimeSeriesSchema(ma.ModelSchema):
-#     id = fields.Int(dump_only=True)
-#     location = fields.Nested(LocationSchema)
-#
-#     class Meta:
-#         model = TimeSeries
-
-
-class LocationSchema(ModelSchema):
+class ProductSchema(ModelSchema):
     # overriding automatic history field from model import
     id = fields.Int(dump_only=True)
+
+    @post_dump(pass_many=True)
+    def wrap(self, data, many):
+        if many:
+            for product in data:
+                history = []
+                product_id = product['id']
+                historical_locations = Location.query.filter_by(product_id=product_id)#.all()
+
+                for location in historical_locations:
+                    obj = {
+                        'id': location.id,
+                        'datetime': location.datetime,
+                        'longitude':location.longitude,
+                        'latitude': location.latitude,
+                        'elevation': location.elevation,
+                    }
+                    history.append(obj)
+                product['locations'] = history
+        else:
+            data = {'description':data['description'],
+                     'id': data['id'],
+             }
+        return data
+
+    class Meta:
+        model = Product
+
+
+    # historical_data = fields.Method('format_timeseries', dump_only=True)
+    #
+    # def format_timeseries(self, location):
+    #     timeseries = location
+    #     return '{},{}, {}, {}'.format(timeseries.datetime,
+    #                                   timeseries.longitude,
+    #                                   timeseries.latitude,
+    #                                   timeseries.elevaton)
     # history = fields.Nested(HistorySchema, many=True)
+    # class Meta:
+    #     model = Location
+class LocationSchema(ModelSchema):
+    id = fields.Int(dump_only=True)
+    location = fields.Nested(ProductSchema)
     class Meta:
         model = Location
-
-class TimeSeriesSchema(ModelSchema):
-    id = fields.Int(dump_only=True)
-    location = fields.Nested(LocationSchema)
-    class Meta:
-        model = TimeSeries
 
     # method to invoke after deserialization. Takes deserialized data; Returns user-friendly processed data
     # @post_load
